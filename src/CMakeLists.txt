@@ -29,7 +29,7 @@ set(
 )
 
 add_library(QOsc
-    SHARED
+    OBJECT
         ${headers}
         qosc_global.cpp
 
@@ -51,13 +51,10 @@ add_library(QOsc
         qoscmethod.cpp
 )
 
-# Don't link the platform plugin, this fixes builds on iOS for some reason
-qt_import_plugins(QOsc EXCLUDE_BY_TYPE platforms)
-
 # define library target
 target_link_libraries(
     QOsc
-    PRIVATE
+    PUBLIC
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Gui
         Qt${QT_VERSION_MAJOR}::Network
@@ -76,5 +73,4 @@ target_compile_definitions(QOsc PRIVATE SOFT_VERSION=${PROJECT_VERSION})
 target_compile_definitions(QOsc PRIVATE GIT_VERSION=${GIT_VERSION})
 
 # install
-install(TARGETS QOsc EXPORT QOsc DESTINATION ${lib_dest})
 install(FILES ${headers} DESTINATION ${include_dest})

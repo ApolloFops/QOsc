@@ -52,4 +52,3 @@ add_subdirectory(tests)
 
 # install
 install(FILES QOsc-config.cmake DESTINATION ${lib_dest})
-install(EXPORT QOsc DESTINATION ${lib_dest})
