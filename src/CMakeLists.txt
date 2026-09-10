@@ -51,13 +51,16 @@ add_library(QOsc
         qoscmethod.cpp
 )
 
+# Don't link the platform plugin, this fixes builds on iOS for some reason
+qt_import_plugins(QOsc EXCLUDE_BY_TYPE platforms)
+
 # define library target
 target_link_libraries(
     QOsc
-    PUBLIC
-        Qt::Core
-        Qt::Gui
-        Qt::Network
+    PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core
+        Qt${QT_VERSION_MAJOR}::Gui
+        Qt${QT_VERSION_MAJOR}::Network
 )
 target_include_directories(
     QOsc
