@@ -20,9 +20,16 @@ QOscTcpInterface::QOscTcpInterface(QObject *parent) :
 	QObject::connect(&socket, &QTcpSocket::connected, &reconnectTimer,
 			&QTimer::stop);
 
+	QObject::connect(&socket, &QTcpSocket::connected, this, [&] {
+		qWarning("Connected to host.");
+	});
 	QObject::connect(&socket, &QTcpSocket::disconnected, this, [&] {
 		qWarning("Disconnected from host.");
 		reconnectTimer.start();
+	});
+
+	QObject::connect(&socket, &QTcpSocket::errorOccurred, this, [&](QAbstractSocket::SocketError socketError) {
+		qWarning() << "Socket Error occurred (" << socketError << "): " << socket.errorString();
 	});
 
 	rebind();
