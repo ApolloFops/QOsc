@@ -75,19 +75,36 @@ void QOscTcpInterface::rebind() {
 
 void QOscTcpInterface::sendData(const QByteArray &data) {
 	// Create a buffer to hold the packet's data
-	QBuffer b;
-	b.open(QIODevice::WriteOnly);
+	QByteArray frame;
+	frame.reserve(data.size() + 2);
 
 	// Write the start byte
-	b.putChar('\xC0');
+	frame.append(char(0xC0));
 
 	// Write the data itself
-	b.write(data);
+	for (char byte : data) {
+		switch (static_cast<unsigned char>(byte)) {
+			// Escape 0xC0 and 0xDB bytes since those mean things
+			case 0xC0:
+				frame.append(char(0xDB));
+				frame.append(char(0xDC));
+				break;
+
+			case 0xDB:
+				frame.append(char(0xDB));
+				frame.append(char(0xDD));
+				break;
+
+			default:
+				frame.append(byte);
+				break;
+		}
+	}
 
 	// Write the end byte
-	b.putChar('\xC0');
+	frame.append(char(0xC0));
 
-	socket.write(b.data());
+	socket.write(frame);
 	emit messageSent();
 }
 
