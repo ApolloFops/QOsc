@@ -6,33 +6,33 @@
 
 QOscTcpInterface::QOscTcpInterface(QObject *parent) :
 		QOscInterface(parent) {
-	QObject::connect(&socket, &QAbstractSocket::readyRead, this,
-			&QOscTcpInterface::readReady);
-	QObject::connect(&socket, &QAbstractSocket::connected, this,
-			&QOscTcpInterface::connected);
+	// Set up processing
+	QObject::connect(&socket, &QAbstractSocket::readyRead, this, &QOscTcpInterface::readReady);
 
-	// Reconnect logic
-	QObject::connect(&reconnectTimer, &QTimer::timeout, this,
-			&QOscTcpInterface::rebind);
-	reconnectTimer.setInterval(5000);
-	reconnectTimer.start();
+	// Set up some basic signals
+	QObject::connect(&socket, &QAbstractSocket::connected, this, &QOscTcpInterface::connected);
+	QObject::connect(&socket, &QAbstractSocket::disconnected, this, &QOscTcpInterface::disconnected);
 
-	QObject::connect(&socket, &QTcpSocket::connected, &reconnectTimer,
-			&QTimer::stop);
-
-	QObject::connect(&socket, &QTcpSocket::connected, this, [&] {
-		qWarning("Connected to host.");
-	});
-	QObject::connect(&socket, &QTcpSocket::disconnected, this, [&] {
-		qWarning("Disconnected from host.");
-		reconnectTimer.start();
-	});
-
-	QObject::connect(&socket, &QTcpSocket::errorOccurred, this, [&](QAbstractSocket::SocketError socketError) {
+	QObject::connect(&socket, &QAbstractSocket::errorOccurred, this, [&](QAbstractSocket::SocketError socketError) {
 		qWarning() << "Socket Error occurred (" << socketError << "): " << socket.errorString();
 	});
 
-	rebind();
+	QObject::connect(&socket, &QAbstractSocket::connected, this, [&] {
+		qWarning("Connected to host.");
+	});
+	QObject::connect(&socket, &QAbstractSocket::disconnected, this, [&] {
+		qWarning("Disconnected from host.");
+	});
+
+	// Reconnect logic
+	QObject::connect(&reconnectTimer, &QTimer::timeout, this, &QOscTcpInterface::rebind);
+	reconnectTimer.setInterval(5000);
+
+	QObject::connect(&socket, &QAbstractSocket::connected, &reconnectTimer, &QTimer::stop);
+	QObject::connect(&socket, &QAbstractSocket::disconnected, this, [&] {
+		rebind();
+		reconnectTimer.start();
+	});
 }
 
 QOscTcpInterface::~QOscTcpInterface() {}
@@ -62,6 +62,8 @@ void QOscTcpInterface::setRemotePort(quint16 p) {
 }
 
 void QOscTcpInterface::rebind() {
+	qWarning("Rebinding interface.");
+
 	if (socket.isValid()) {
 		socket.disconnectFromHost();
 
