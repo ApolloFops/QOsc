@@ -13,14 +13,14 @@ QOscTcpInterface::QOscTcpInterface(QObject *parent) :
 	QObject::connect(&socket, &QAbstractSocket::connected, this, &QOscTcpInterface::connected);
 	QObject::connect(&socket, &QAbstractSocket::disconnected, this, &QOscTcpInterface::disconnected);
 
-	QObject::connect(&socket, &QAbstractSocket::errorOccurred, this, [&](QAbstractSocket::SocketError socketError) {
+	QObject::connect(&socket, &QAbstractSocket::errorOccurred, this, [this](QAbstractSocket::SocketError socketError) {
 		qWarning() << "Socket Error occurred (" << socketError << "): " << socket.errorString();
 	});
 
-	QObject::connect(&socket, &QAbstractSocket::connected, this, [&] {
+	QObject::connect(&socket, &QAbstractSocket::connected, this, [] {
 		qWarning("Connected to host.");
 	});
-	QObject::connect(&socket, &QAbstractSocket::disconnected, this, [&] {
+	QObject::connect(&socket, &QAbstractSocket::disconnected, this, [] {
 		qWarning("Disconnected from host.");
 	});
 
@@ -29,9 +29,16 @@ QOscTcpInterface::QOscTcpInterface(QObject *parent) :
 	reconnectTimer.setInterval(5000);
 
 	QObject::connect(&socket, &QAbstractSocket::connected, &reconnectTimer, &QTimer::stop);
-	QObject::connect(&socket, &QAbstractSocket::disconnected, this, [&] {
+	QObject::connect(&socket, &QAbstractSocket::disconnected, this, [this] {
 		rebind();
 		reconnectTimer.start();
+	});
+
+	// Clear buffers on disconnect
+	QObject::connect(&socket, &QAbstractSocket::disconnected, this, [this] {
+		frameBuffer.clear();
+		packetStarted = false;
+		trailingEscape = false;
 	});
 }
 
@@ -81,20 +88,20 @@ void QOscTcpInterface::sendData(const QByteArray &data) {
 	frame.reserve(data.size() + 2);
 
 	// Write the start byte
-	frame.append(char(0xC0));
+	frame.append(SlipEnd);
 
 	// Write the data itself
 	for (char byte : data) {
-		switch (static_cast<unsigned char>(byte)) {
-			// Escape 0xC0 and 0xDB bytes since those mean things
-			case 0xC0:
-				frame.append(char(0xDB));
-				frame.append(char(0xDC));
+		switch (byte) {
+			// Escape End and Esc bytes since those mean things
+			case SlipEnd:
+				frame.append(SlipEsc);
+				frame.append(SlipEscEnd);
 				break;
 
-			case 0xDB:
-				frame.append(char(0xDB));
-				frame.append(char(0xDD));
+			case SlipEsc:
+				frame.append(SlipEsc);
+				frame.append(SlipEscEsc);
 				break;
 
 			default:
@@ -104,67 +111,100 @@ void QOscTcpInterface::sendData(const QByteArray &data) {
 	}
 
 	// Write the end byte
-	frame.append(char(0xC0));
+	frame.append(SlipEnd);
 
 	socket.write(frame);
 	emit messageSent();
 }
 
 void QOscTcpInterface::readReady() {
-	QByteArray byteDataToRead = socket.peek(socket.bytesAvailable());
+	QByteArray byteDataToRead = socket.read(socket.bytesAvailable());
 
-	// Iterate through the data, find packets, and do things with them
-	bool packetStarted = false;
-	qint64 startIndex = 0;
-	qint64 endIndex = 0;
-	for (qint64 i = 0; i < byteDataToRead.length(); i++) {
-		bool byteFound =
-				QByteArrayView(byteDataToRead).slice(i, 1).contains('\xC0');
-		if (byteFound) {
-			// In the case that a zero-byte packet is found, this usually means
-			// that the end of a packet was recieved but the start was missed,
-			// so this just resets things when that happens.
-			if (startIndex == i - 1) {
-				packetStarted = false;
-			}
-
-			if (!packetStarted) {
-				packetStarted = true;
-				startIndex = i;
-			} else {
-				packetStarted = false;
-				endIndex = i;
-
-				QByteArray data =
-						QByteArray(QByteArrayView(byteDataToRead)
-										.slice(startIndex + 1, endIndex - startIndex - 1));
-
-				switch (QOsc::detectType(data)) {
-					case QOsc::OscMessage: {
-						auto msg = QOscMessage::read(data);
-						if (msg.isValid()) {
-							processMessage(msg, socket.peerAddress());
-							emit messageReceived(msg, socket.peerAddress());
-						}
-						break;
-					}
-
-					case QOsc::OscBundle: {
-						auto bundle = QOscBundle::read(data);
-						if (bundle.isValid()) {
-							processBundle(bundle, socket.peerAddress());
-							emit bundleReceived(bundle, socket.peerAddress());
-						}
-						break;
-					}
-
-					default:
-						break;
-				}
-			}
-		}
+	if (trailingEscape) {
+		byteDataToRead.prepend(SlipEsc);
+		trailingEscape = false;
 	}
 
-	// Discard the data that has already been processed
-	socket.skip(endIndex);
+	// Iterate through the data, find packets, and do things with them
+	for (qsizetype i = 0; i < byteDataToRead.size(); ++i) {
+		char byte = byteDataToRead.at(i);
+		if (packetStarted) {
+			switch (byte) {
+				case SlipEnd: {
+					// In the case that a zero-byte packet is found, this usually means that the
+					// end of a packet was recieved but the start was missed, so this just resets
+					// things when that happens.
+					if (frameBuffer.isEmpty()) {
+						frameBuffer.resize(0);
+
+						break;
+					}
+
+					switch (QOsc::detectType(frameBuffer)) {
+						case QOsc::OscMessage: {
+							auto msg = QOscMessage::read(frameBuffer);
+							if (msg.isValid()) {
+								processMessage(msg, socket.peerAddress());
+								emit messageReceived(msg, socket.peerAddress());
+							}
+							break;
+						}
+
+						case QOsc::OscBundle: {
+							auto bundle = QOscBundle::read(frameBuffer);
+							if (bundle.isValid()) {
+								processBundle(bundle, socket.peerAddress());
+								emit bundleReceived(bundle, socket.peerAddress());
+							}
+							break;
+						}
+
+						default:
+							break;
+					}
+
+					frameBuffer.resize(0);
+					packetStarted = false;
+
+					break;
+				}
+
+				case SlipEsc: {
+					// Found an escape character, we need to figure out what to do with it and then
+					// update the frameBuffer accordingly
+
+					if (i == byteDataToRead.size() - 1) {
+						// If we have a trailing escape character, set a flag so we can come back
+						// to it once we have more data
+						trailingEscape = true;
+						break;
+					}
+
+					char escapedByte = byteDataToRead.at(i + 1);
+
+					switch (escapedByte) {
+						case SlipEscEnd:
+							frameBuffer.append(SlipEnd);
+							break;
+
+						case SlipEscEsc:
+							frameBuffer.append(SlipEsc);
+							break;
+					}
+
+					// Skip the next character since it was escaped
+					++i;
+					break;
+				}
+
+				default: {
+					frameBuffer.append(byte);
+					break;
+				}
+			}
+		} else if (byte == SlipEnd) {
+			// Found a SlipEnd byte, we should start reading data now
+			packetStarted = true;
+		}
+	}
 }

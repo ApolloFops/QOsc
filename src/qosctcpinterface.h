@@ -33,12 +33,21 @@ protected:
 	void sendData(const QByteArray& data) override;
 	
 private:
+	static const char SlipEnd = '\xC0';
+	static const char SlipEsc = '\xDB';
+	static const char SlipEscEnd = '\xDC';
+	static const char SlipEscEsc = '\xDD';
+
 	void rebind();
 
 	QHostAddress remoteAddr = QHostAddress("127.0.0.1");
 	quint16      remotePort = 0;
 	QTcpSocket   socket;
 	QTimer reconnectTimer;
+
+	QByteArray frameBuffer;
+	bool packetStarted = false;
+	bool trailingEscape = false;
 
 private slots:
 	void readReady();
