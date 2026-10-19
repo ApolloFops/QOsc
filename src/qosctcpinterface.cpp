@@ -54,7 +54,6 @@ void QOscTcpInterface::setRemoteAddress(const QString &addr) {
 	if (hostAddr != remoteAddr) {
 		remoteAddr = hostAddr;
 		emit remoteAddressChanged(addr);
-		rebind();
 	}
 }
 
@@ -64,7 +63,6 @@ void QOscTcpInterface::setRemotePort(quint16 p) {
 	if (p != remotePort) {
 		remotePort = p;
 		emit remotePortChanged(p);
-		rebind();
 	}
 }
 

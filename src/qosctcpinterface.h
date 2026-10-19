@@ -21,7 +21,15 @@ public:
 	
 	quint16 getRemotePort() const;
 	void setRemotePort(quint16 p);
-	
+
+public slots:
+	/**
+	 * @brief Sets up the TCP socket.
+	 *
+	 * This must be called after setting the address and port to connect to the server.
+	 */
+	void rebind();
+
 signals:
 	void remoteAddressChanged(const QString& addr);
 	void remotePortChanged(quint16 port);
@@ -37,8 +45,6 @@ private:
 	static const char SlipEsc = '\xDB';
 	static const char SlipEscEnd = '\xDC';
 	static const char SlipEscEsc = '\xDD';
-
-	void rebind();
 
 	QHostAddress remoteAddr = QHostAddress("127.0.0.1");
 	quint16      remotePort = 0;
